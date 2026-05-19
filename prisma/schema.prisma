@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String        @id @default(uuid()) @db.Uuid
+  email          String        @unique
+  name           String?
+  authProvider   String
+  externalUserId String
+  createdAt      DateTime      @default(now())
+  reservations   Reservation[]
+
+  @@unique([authProvider, externalUserId])
+  @@map("users")
+}
+
+model Seat {
+  id           String        @id @default(uuid()) @db.Uuid
+  code         String        @unique
+  createdAt    DateTime      @default(now())
+  reservations Reservation[]
+
+  @@map("seats")
+}
+
+model Reservation {
+  id             String            @id @default(uuid()) @db.Uuid
+  userId         String            @db.Uuid
+  seatId         String            @db.Uuid
+  status         ReservationStatus @default(pending_payment)
+  expiresAt      DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seat           Seat              @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  paymentIntents PaymentIntent[]
+  paymentTransactions PaymentTransaction[]
+
+  @@index([seatId, status])
+  @@index([userId])
+  @@index([expiresAt])
+  // DB-level uniqueness for paid reservations is defined via SQL migration as a
+  // partial unique index on (seatId) WHERE status = 'paid'.
+  // Hold statuses still require transactional/advisory locking because
+  // expiry windows cannot be safely enforced by a simple partial index on now().
+  @@map("reservations")
+}
+
+model PaymentIntent {
+  id             String              @id @default(uuid()) @db.Uuid
+  reservationId  String              @db.Uuid
+  provider       String              @default("mock")
+  status         PaymentIntentStatus @default(requires_payment)
+  idempotencyKey String?             @unique
+  failureReason  String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  reservation    Reservation         @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  transactions   PaymentTransaction[]
+
+  @@index([reservationId])
+  @@index([idempotencyKey])
+  @@map("payment_intents")
+}
+
+model PaymentTransaction {
+  id                        String               @id @default(uuid()) @db.Uuid
+  reservationId             String               @db.Uuid
+  paymentIntentId           String               @db.Uuid
+  provider                  String
+  providerEventId           String?
+  eventType                 String
+  paymentIntentStatusBefore PaymentIntentStatus?
+  paymentIntentStatusAfter  PaymentIntentStatus
+  reservationStatusBefore   ReservationStatus?
+  reservationStatusAfter    ReservationStatus?
+  failureReason             String?
+  rawPayload                Json?
+  createdAt                 DateTime             @default(now())
+  reservation               Reservation          @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  paymentIntent             PaymentIntent        @relation(fields: [paymentIntentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerEventId])
+  @@index([reservationId])
+  @@index([paymentIntentId])
+  @@index([eventType])
+  @@map("payment_transactions")
+}
+
+enum ReservationStatus {
+  pending_payment
+  payment_failed
+  paid
+  expired
+  cancelled
+}
+
+enum PaymentIntentStatus {
+  requires_payment
+  processing
+  succeeded
+  failed
+  cancelled
+}

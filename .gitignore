@@ -1,0 +1,9 @@
+node_modules
+.next
+lib/generated
+.env
+coverage
+.DS_Store
+.idea
+tsconfig.tsbuildinfo
+*.tsbuildinfo
